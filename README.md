@@ -1,7 +1,14 @@
-# base-API-script
-This repo can be used as a starting point for developing a Python script that utilizes the Plextrac API in some way. It acts as a mini framework with some helpful utilities that make endpoint calls easier. These utilities include a logger, authentication handler, API wrapper library that stores endpoint URLs, and other general utility function that revolve around user inputs, data sanitization, and data validation.
+# client-assets-csv-export
+This script provides a solution for exporting a list of assets from a single client. This tool adds value since the functionality of exporting client assets to a CSV is currently missing from the platform UI. It allows users to conveniently retrieve and export asset objects, enhancing the overall manageability of assets within the client.
 
-To get started make a copy of this repo and read through the main.py file which goes more in-depth about the utilities available. You can also run the script with the instructions below to see the output of the examples used when describing the utilities available. Once you know what's available, you can remove the examples, and start writing your script in the main.py file.
+Once exported, assets can be backed up or reimported to a different client. Please see our public docs on how to [import client assets from a CSV](https://docs.plextrac.com/plextrac-documentation/product-documentation/clients/adding-assets-to-a-client#importing-assets-to-clients).
+
+### Important Consideration for CSV Re-Import: Duplicate Assets
+We're currently aware that assets with the same name are handled sub-optimally. When importing a CSV of assets, the import process will deduplicate assets based solely on the asset name. If a CSV contains 2 rows where assets share a name, only the data from the last row will be considered. In the Plextrac platform, we deduplicate assets based on a combination of the parent asset's name, if present, and the asset name. Therefore, the existence of rows with the same asset name, need to be highly considered when importing a CSV of assets created from this script. Since a client in Plextrac CAN have multiple assets with the same name if they have different parent assets, this could be a common case to run into and our import process currently isn't able to handle this in a more graceful way.
+
+The only exception is port data. If there are 2 rows that share an asset name, the port data from the first row will combine with any port data on the asset in a later row.
+
+Internal ticket to track this issue: IO-886
 
 # Requirements
 - [Python 3+](https://www.python.org/downloads/)
@@ -38,7 +45,8 @@ The following values can either be added to the `config.yaml` file or entered wh
 - Password
 
 ## Script Execution Flow
-- Starts executing the main.py file
-- Prints script info stored in settings.py
-- Reads in values from config.yaml file
-- Goes through list of examples to show the user current functionality that can be utilized
+- Authenticates user to provided instance of Plextrac
+- Pulls client data from your instance
+- Prompts user to select a client to export assets to a CSV
+- Pulls all asset info from the selected client
+- Parses asset data and saves in CSV 

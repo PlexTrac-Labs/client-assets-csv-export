@@ -12,14 +12,15 @@ save_logs_to_file = False
 verify_ssl = True
 # number of times to rety a request before throwing an error. will only throw the last error encountered if
 # number of retries is exceeded. set to 0 to disable retrying requests
-retries = 5
+retries = 0
 
 # description of script that will be print line by line when the script is run
 script_info = ["====================================================================",
-               "= Base API Script                                                  =",
+               "= Client Asset Export to CSV                                       =",
                "=------------------------------------------------------------------=",
-               "= Use this script as a starting point to utilize existing          =",
-               "= funtionality when developing a script for the Plextrac API       =",
+               "= This script will export all assets in a client to a CSV.         =",
+               "= The CSV will have the same schema Plextrac uses to import assets =",
+               "= to a client.                                                     =",
                "=                                                                  =",
                "===================================================================="
             ]

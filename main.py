@@ -1,10 +1,153 @@
 import yaml
+import time
+import csv
+from copy import deepcopy
 
 import settings
 import utils.log_handler as logger
 log = logger.log
 from utils.auth_handler import Auth
 import utils.input_utils as input
+import api
+import utils.general_utils as utils
+
+
+def get_page_of_clients(page: int = 0, clients: list = [], total_clients: int = -1) -> None:
+    """
+    Handles traversing pagination results to create a list of all items.
+
+    :param page: page to start on, for all results use 0, defaults to 0
+    :type page: int, optional
+    :param clients: the list passed in will be added to, acts as return, defaults to []
+    :type clients: list, optional
+    :param total_clients: used for recursion to know when all pages have been gathered, defaults to -1
+    :type total_clients: int, optional
+    """
+    payload = {
+        "pagination": {
+            "offset": page*100,
+            "limit": 100
+        }
+    }
+    # EXAMPLE schema of returned clients
+    # {
+    #     "client_id": 4155,
+    #     "name": "Test Client",
+    #     "poc": "poc name",
+    #     "tags": [
+    #         "test"
+    #     ]
+    # }
+    response = api.clients.list_clients(auth.base_url, auth.get_auth_headers(), payload)
+    if response.json['status'] != "success":
+        log.critical(f'Could not retrieve clients from instance. Exiting...')
+        exit()
+    total_clients = int(response.json['meta']['pagination']['total'])
+    if len(response.json['data']) > 0:
+        clients += deepcopy(response.json['data'])
+
+    if len(clients) < total_clients:
+        return get_page_of_clients(page+1, clients, total_clients)
+    
+    return None
+
+def get_page_of_assets(client_id: int, page: int = 0, assets: list = [], total_assets: int = -1) -> None:
+    """
+    Handles traversing pagination results to create a list of all items.
+
+    :param page: page to start on, for all results use 0, defaults to 0
+    :type page: int, optional
+    :param assets: the list passed in will be added to, acts as return, defaults to []
+    :type assets: list, optional
+    :param total_assets: used for recursion to know when all pages have been gathered, defaults to -1
+    :type total_assets: int, optional
+    """
+    log.info(f'Load page {page} of client assets...')
+    payload = {
+        "pagination": {
+            "offset": page*100,
+            "limit": 100
+        }
+    }
+    # region EXAMPLE schema of returned assets
+        # {
+        #     "asset": "Test Asset All Fields",
+        #     "assetCriticality": "High",
+        #     "id": "cloxe6ukz00t30hrr3rwrfn82",
+        #     "parent": {
+        #         "asset": "Parent Asset",
+        #         "id": "cloxe594h00t20hrrdqjo6sz5"
+        #     },
+        #     "findings": {
+        #         "info": 0,
+        #         "low": 0,
+        #         "medium": 0,
+        #         "high": 0,
+        #         "critical": 0,
+        #         "total": 0
+        #     },
+        #     "system_owner": "System Owner",
+        #     "type": "Workstation",
+        #     "data_owner": "Data Owner",
+        #     "hostname": "Hostname",
+        #     "operating_system": [
+        #         "windows"
+        #     ],
+        #     "dns_name": "DNS Name",
+        #     "host_fqdn": "Host FQDN",
+        #     "host_rdns": "Host RDNS",
+        #     "mac_address": "MAC Address",
+        #     "physical_location": "Physical Location",
+        #     "netbios_name": "NetBIOS Name",
+        #     "total_cves": "5",
+        #     "pci_status": "pass",
+        #     "description": "<p><span style=\"background-color:rgb(255,255,255);color:rgb(37,36,40);\">Asset Description</span></p>",
+        #     "knownIps": [
+        #         "1.1.1.1"
+        #     ],
+        #     "tags": [
+        #         "test"
+        #     ],
+        #     "ports": {
+        #         "1234": {
+        #             "number": "1234",
+        #             "service": "service",
+        #             "protocol": "protocol",
+        #             "version": "version"
+        #         }
+        #     }
+        # }
+    # endregion
+    response = api.clients.list_client_assets(auth.base_url, auth.get_auth_headers(), client_id, payload)
+    if response.json['status'] != "success":
+        log.critical(f'Could not retrieve assets from instance. Exiting...')
+        exit()
+    total_assets = int(response.json['meta']['pagination']['total'])
+    if len(response.json['data']) > 0:
+        assets += deepcopy(response.json['data'])
+
+    if len(assets) < total_assets:
+        return get_page_of_assets(client_id, page+1, assets, total_assets)
+    
+    return None
+
+def get_client_choice(clients) -> int:
+    """
+    Prompts the user to select from a list of clients to export related assets to CSV.
+    Based on subsequently called functions, this will return a valid option or exit the script.
+
+    :param repos: List of clients returned from the POST List Clients endpoint
+    :type repos: list[client objects]
+    :return: 0-based index of selected client from the list provided
+    :rtype: int
+    """
+    log.info(f'List of Clients:')
+    index = 1
+    for client in clients:
+        log.info(f'{index} - Name: {client["name"]} | ID: {client["client_id"]} | Tags: {client.get("tags", [])}')
+        index += 1
+    return input.user_list("Select a client to export assets from", "Invalid choice", len(clients)) - 1
+
 
 
 if __name__ == '__main__':
@@ -14,176 +157,99 @@ if __name__ == '__main__':
     with open("config.yaml", 'r') as f:
         args = yaml.safe_load(f)
 
-
-    """
-    Config File
-
-    The `args` variable (created above) stores all the info entered on the config.yaml file. This is a dictionary created from
-    the parsed yaml file.
-    
-    This is passed to the `Auth` object to try and load the instance URL, username, and password for authentication, but you
-    can add other fields you need as well.
-    """
-    log.info(args)
-    log.info(args.get('instance_url'))
-
-
-    """
-    Authenticate to Plextrac Instance
-
-    To handle authentication you can create an Auth object that stores different things needed to make calls to API endpoints.
-    This info includes the URL of the PT instance you're authenticated to and user credentials used to successfully authenticate.
-    After authentication, it creates and stores the authorization headers sent with requests to API endpoints.
-
-    Below is an example of creating an Auth object. Calling the `handle_authentication` method and passing in the args from the
-    config file tries to authenticate you to the PT instance in the config with the user credentials in the config. If either of
-    these values are not in the config the user is prompted to enter them on the terminal the script was ran from.
-    """
     auth = Auth(args)
     auth.handle_authentication()
 
 
-    """
-    Using Authentication
-
-    After creating an Auth object and getting authenticated, you can use the info stored on this object to call PT API endpoints
-    as you build out your script. You can use the following data:
-
-    auth.base_url - the url the user was authenticated to (ex. https://example.plextrac.com)
-    auth.get_auth_headers() - returns the current Authorization headers (handles reauthenticating if expired)
-    auth.tenant_id - the tenant id the user was authenticated to (required by some endpoints)
-    """
-    log.info(f'Authenticated to {auth.base_url} on tenant {auth.tenant_id}')
-    log.info(f'Authentication headers: {auth.get_auth_headers()}')
+    # load all clients from instance
+    log.info(f'Loading Clients from instance')
+    clients = []
+    get_page_of_clients(0, clients=clients)
+    log.debug(f'list of loaded clients:\n{clients}')
+    log.success(f'Loaded {len(clients)} client(s) from instance')
 
 
-    """
-    Built-in API Endpoints
-
-    You can use the currently built-out API endpoints in the /api folder. This is a wrapper library that contains the specific URLs of all endpoints.
-    
-    Use the import statement: import api
-    
-    You can now make an API request by calling api.<folder>.<file>.<endpoint_name>(parameters...) and adding the necessary parameters. The
-    `base_url` and `headers` parameter is required for every endpoint that required authentication. This information is stored on the Auth
-    object created in the example above.
-    """
-    import api
-
-    client_id = "<id_of_client>"
-    response = api.clients.get_client(auth.base_url, auth.get_auth_headers(), client_id)
+    # prompt user to select a repo for export
+    while True:
+        choice = get_client_choice(clients)
+        if input.continue_anyways(f'Export asset(s) from \'{clients[choice]["name"]}\' to CSV?'):
+            break
+    selected_client = clients[choice]
 
 
-    """
-    Retrying API Requests
-
-    If one of the built-in API endpoint's request fails it will retry the same request up to the number of times as specified in the setting.py file.
-    When retrying it will print the exception and continue. After this number of failed attempts it will raise exceptions instead of printing them.
-
-    By default the number of retries is 5. Change this in the setting.py file
-    """
-    # EXAMPLE Built-in API call
-    # import api
-
-    # client_id = "<id_of_client>"
-    # response = api._v1.clients.get_client(auth.base_url, auth.get_auth_headers(), client_id)
-    
-    # EXAMPLE Console on Failure
-    # >>> [EXCEPTION] Request failed - Get Client. Retrying... (1/5)
-    #     Exception: ('Connection aborted.', ConnectionResetError(10054, 'An existing connection was forcibly closed by the remote host', None, 10054, None))
-    #     Traceback (most recent call last):
-    #     etc...
+    # set file path for exported CSV
+    parser_time_seconds: float = time.time()
+    parser_time: str = time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime(parser_time_seconds))
+    FILE_PATH = f'{utils.sanitize_file_name(selected_client["name"])}_{parser_time}.csv'
 
 
-    """
-    Logging Wrapper
-
-    Any logging can be done using a custom wrapper for the Python logging module. This wrapper handles color formatting of logs to the console and optional output file.
-    
-    Use the import statement, then set the reference to the custom logging wrapper:
-    import utils.log_handler as logger
-    log = logger.log
-
-    You can now write to logs with log.<message-type>("<message>")
-
-    Define the following logging setting in settings.py:
-    - console logging level
-    - output file logging level
-    - whether the script should save logs to a file
-    """
-    log.warning("You are warned")
-    log.info("Here is some info")
-    log.success("Congrats!")
+    # get all assets in user selected client
+    log.info(f'Getting Assets from selected Client')
+    assets = []
+    get_page_of_assets(selected_client['client_id'], 0, assets=assets)
+    log.debug(f'list of loaded assets:\n{assets}')
+    log.success(f'Loaded {len(assets)} assets(s) from client')
 
 
-    """
-    Bulk Iteration Metrics
+    # CREATE CSV
+    # define headers
+    headers = ["name", "ip addresses", "criticality", "data owner", "physical location", "system owner", "ports", "tags",
+                "description", "parent", "type", "host fqdn", "hostname", "host rdns", "dns name", "mac address", "netbios name",
+                "total cves", "pci status", "operating system"]
 
-    You are able to print metrics about an action using the IterationMetrics object in the log_handler.py. This will manage time tracking and gives you a simple function
-    that returns a string of the current iterations metrics. If you are doing an action in a loop, i.e. calling the same endpoint, this can be used to show metrics for
-    how long the script has been running and how long it should take to complete.
+    # pluck asset data from API response and format as list for CSV
+    csv_assets = []
+    for asset in assets:
+        # knownIps
+        knownIps = str(asset.get('knownIps', "")).replace("[","").replace("]","").replace("'","")
+        # ports
+        ports = []
+        for port in asset.get('ports', {}).values():
+            ports.append(f'{port.get("number", "")}//{port.get("protocol", "")}//{port.get("service", "")}//{port.get("version", "")}/')
+        ports = str(ports).replace("[","").replace("]","").replace("'","")
+        # tags
+        tags = str(asset.get('tags', "")).replace("[","").replace("]","").replace("'","")
+        # parent
+        parent_asset_name = ""
+        parent = asset.get("parent", {})
+        if isinstance(parent, dict):
+            parent_asset_name = parent.get("asset", "")
+        # pci status
+        pci_status = asset.get("pci_status", "")
+        pci_status = "Pass" if pci_status == "pass" else "Fail" if pci_status == "fail" else ""
+        # operating system
+        operating_system = str(asset.get('operating_system', "")).replace("[","").replace("]","").replace("'","")        
+        
+        # all fields
+        fields_for_csv = [
+            asset.get('asset', ""),
+            knownIps,
+            asset.get('assetCriticality', ""),
+            asset.get('data_owner', ""),
+            asset.get('physical_location', ""),
+            asset.get('system_owner', ""),
+            ports,
+            tags,
+            asset.get('description', ""),
+            parent_asset_name,
+            asset.get('type', ""),
+            asset.get('host_fqdn', ""),
+            asset.get('hostname', ""),
+            asset.get('host_rdns', ""),
+            asset.get('dns_name', ""),
+            asset.get('mac_address', ""),
+            asset.get('netbios_name', ""),
+            asset.get('total_cves', ""),
+            pci_status,
+            operating_system
+        ]
 
-    Use the import statement, then create a new IterationMetrics object. Note the counter starts upon creation, so this line should go right before the loop:
-    from utils.log_handler import IterationMetrics
+        # add writeup to list to be written to csv
+        csv_assets.append(fields_for_csv)
 
-    metrics = IterationMetrics(<num_items_in_list>)
-
-    Now calling the print_iter_metrics() function will calculate the stats of the current interation, increment to the next iteration, and return a string with the
-    calculated metrics. This should be called at the end of a loop.
-    """
-    import time # only imported in this example to use sleep
-
-    from utils.log_handler import IterationMetrics
-
-    items = range(5)
-    metrics = IterationMetrics(len(items)) # time starts ticking when the IterationMetrics object is created
-    for i in items:
-        log.info("Working...")
-        time.sleep(3)
-        log.success(f'Finished the work.')
-        log.info(metrics.print_iter_metrics())
-
-
-    """
-    Built-in User Input Handling
-
-    You can use a wrapper for the Python input() function by utilizing the input_utils.py. This will add a prefix to all user prompts and
-    define some validation rules as to the user input.
-
-    Use the import statement: import utils.input_utils as input
-    
-    You can now use the following wrapper options:
-    - user_options
-    - user_list
-    - continue_anyways
-    - retry
-    - load_json_data
-    - load_csv_data
-
-    All options will continue to prompt the user until a valid input has been entered or selected, or exit the script.
-    """
-    # user_options
-    val = input.user_options("Select an option", "That wasn't a valid optoin", ["1", "2", "3"])
-    log.info(f'Selected {val}')
-
-    # user_list
-    option_list = ["apple", "banana", "pear"]
-    for index, option in enumerate(option_list):
-        log.info(f'{index+1} - {option}')
-    val = input.user_list("Select an option", "That wasn't a valid optoin", len(option_list))
-    log.info(f'Selected {val}')
-
-    # continue_anyways
-    val = input.continue_anyways("You ran into an example problem")
-    log.info(f'Selected {val}')
-
-    # retry
-    if input.retry("An example previous input was invalid. Selecting 'n' will exit the script"):
-        log.info("You chose to retry instead of exiting the script")
-
-
-    """
-    Built-in General Utility Helper
-
-    There are a handful of helpful functions in the general_utils.py file. These mostly involve data sanitation or validation
-    """
+    # WRITE CSV
+    with open(FILE_PATH, 'w', newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(headers)
+        writer.writerows(csv_assets)
+    log.success(f'Saved assets to CSV \'{FILE_PATH}\'')
